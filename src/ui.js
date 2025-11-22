@@ -279,9 +279,9 @@ export class UIManager {
                 if (remainingPct > 100) remainingPct = 100;
                 this.energyBarFill.style.width = `${remainingPct}%`;
 
-                // Treat the bar as "draining" for the entire active energy period,
-                // not just while a specific task is running, to avoid flicker.
-                const isDraining = !!hasActiveEnergy;
+                // Treat the bar as "draining" only while a task is actively running;
+                // when idle, keep the remaining percentage but freeze the animation.
+                const isDraining = !!(hasActiveEnergy && playerData.activeTask);
 
                 // Toggle classes for visual state
                 this.energyBarBg.classList.toggle('draining', isDraining);
