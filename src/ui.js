@@ -259,6 +259,13 @@ export class UIManager {
                     : now - (playerData.activeEnergy.startTime || 0) < ONE_HOUR_MS
             );
 
+        // New: detect if we are about to auto-restart the previous task
+        const willAutoRestart =
+            hasActiveEnergy &&
+            prevActiveTask &&
+            !playerData.activeTask &&
+            !this._manualStop;
+
         // Update energy cell drain bar (percent + visual state)
         if (this.energyBarFill && this.energyBarBg) {
             const ae = playerData.activeEnergy;
@@ -279,9 +286,9 @@ export class UIManager {
                 if (remainingPct > 100) remainingPct = 100;
                 this.energyBarFill.style.width = `${remainingPct}%`;
 
-                // Treat the bar as "draining" only while a task is actively running;
-                // when idle, keep the remaining percentage but freeze the animation.
-                const isDraining = !!(hasActiveEnergy && playerData.activeTask);
+                // Treat the bar as "draining" while a task is running OR
+                // during the brief auto-restart window to avoid a visual freeze.
+                const isDraining = !!(hasActiveEnergy && (playerData.activeTask || willAutoRestart));
 
                 // Toggle classes for visual state
                 this.energyBarBg.classList.toggle('draining', isDraining);
