@@ -296,10 +296,38 @@ export class UIManager {
             }
         }
 
-        // Update Active Task UI
-        if (playerData.activeTask) {
-            this.activeTaskContainer.style.display = 'flex';
+        // Auto-restart last task while energy cell is active (only when we didn't manually stop)
+        if (hasActiveEnergy && prevActiveTask && !playerData.activeTask && !this._manualStop) {
+            const taskId = prevActiveTask.taskId;
+            let duration = prevActiveTask.duration;
 
+            if (!duration) {
+                // Fallback: look up duration from SKILLS if missing on legacy data
+                for (const skill of Object.values(SKILLS)) {
+                    const t = skill.tasks.find((t) => t.id === taskId);
+                    if (t) {
+                        duration = t.duration;
+                        break;
+                    }
+                }
+            }
+
+            if (taskId && duration) {
+                // Start the next iteration immediately and keep UI visible;
+                // we'll get a fresh state_update for the new task.
+                this.network.startTask(taskId, duration);
+                return;
+            }
+        } else if (!playerData.activeTask && !hasActiveEnergy) {
+            // If there is no active task and no active energy, clear any manual-stop suppression
+            this._manualStop = false;
+        }
+
+        // Update Active Task UI
+        const shouldShowTaskHeader = !!(playerData.activeTask || hasActiveEnergy || prevActiveTask);
+        this.activeTaskContainer.style.display = shouldShowTaskHeader ? 'flex' : 'none';
+
+        if (playerData.activeTask) {
             // Only restart the progress loop if the task actually changed
             const taskChanged =
                 !prevActiveTask ||
@@ -322,38 +350,16 @@ export class UIManager {
                 }
             }
         } else {
-            // If we just finished or stopped a task, we are idle; hide the task header and stop the bar
-            this.activeTaskContainer.style.display = 'none';
-            this.stopProgressLoop();
+            // No active task: if we also have no active energy, fully reset UI;
+            // otherwise keep the header visible and the bar frozen.
+            if (!hasActiveEnergy) {
+                this.stopProgressLoop();
 
-            // Refresh grid to re-enable buttons
-            const currentTitle = document.getElementById('detail-name').innerText;
-            const skillOfCurrentView = findSkillByName(currentTitle);
-            if (skillOfCurrentView) showSkillDetails(this, skillOfCurrentView);
-        }
-
-        // Auto-restart last task while energy cell is active (only when we didn't manually stop)
-        if (hasActiveEnergy && prevActiveTask && !playerData.activeTask && !this._manualStop) {
-            const taskId = prevActiveTask.taskId;
-            let duration = prevActiveTask.duration;
-
-            if (!duration) {
-                // Fallback: look up duration from SKILLS if missing on legacy data
-                for (const skill of Object.values(SKILLS)) {
-                    const t = skill.tasks.find((t) => t.id === taskId);
-                    if (t) {
-                        duration = t.duration;
-                        break;
-                    }
-                }
+                // Refresh grid to re-enable buttons
+                const currentTitle = document.getElementById('detail-name').innerText;
+                const skillOfCurrentView = findSkillByName(currentTitle);
+                if (skillOfCurrentView) showSkillDetails(this, skillOfCurrentView);
             }
-
-            if (taskId && duration) {
-                this.network.startTask(taskId, duration);
-            }
-        } else if (!playerData.activeTask) {
-            // If there is no active task, clear any manual-stop suppression
-            this._manualStop = false;
         }
 
         // Update inventory panel

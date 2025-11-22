@@ -299,9 +299,10 @@ header {
     animation: none;
 }
 
-/* When idle, no glow animation on the fill */
+/* When idle, keep bar frozen with a blue fill and no glow animation */
 .energy-cell-bar-fill.idle {
     animation: none;
+    background: linear-gradient(90deg, #3b82f6, #1d4ed8);
 }
 
 @keyframes energy-glow {
