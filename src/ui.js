@@ -406,8 +406,11 @@ export class UIManager {
             this.taskLabelEl.innerText = taskDef.name;
         }
         if (this.taskIconEl) {
-            // Use the skill icon if available, otherwise keep current
-            this.taskIconEl.src = taskDef.icon || this.taskIconEl.src;
+            // Use the skill icon associated with this task
+            const skill = findSkillByTaskId(taskDef.id);
+            if (skill && skill.icon) {
+                this.taskIconEl.src = skill.icon;
+            }
             this.taskIconEl.alt = taskDef.name;
         }
         if (this.stopButtonEl) {
