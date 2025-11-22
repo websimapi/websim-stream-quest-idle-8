@@ -12,9 +12,10 @@ export class UIManager {
         this.activeTaskInterval = null;
         this.isHost = isHost;
         this.currentEnergyStartTime = null; // legacy tracker, no longer used for timing
-        this._manualStop = false; // track manual stop clicks
-        this._lastTask = null;    // track last active task for restart
-        this._isIdle = false;     // track if UI is in Idle-for-task mode
+        // Local mirrors of persisted state for convenience
+        this._manualStop = false; // mirrors playerData.manualStop
+        this._lastTask = null;    // mirrors playerData.pausedTask or activeTask
+        this._isIdle = false;     // derived from playerData.pausedTask
 
         // Elements
         this.skillsList = document.getElementById('skills-list');
@@ -120,30 +121,27 @@ export class UIManager {
             const progressEl = document.getElementById('task-progress');
 
             // If we are currently in idle mode for a previous task, clicking acts as "Start"
-            if (this._isIdle && this._lastTask) {
-                const taskDef = this.getTaskDefById(this._lastTask.taskId);
-                const duration = this._lastTask.duration || taskDef?.duration;
+            if (this._isIdle && this.state && this.state.pausedTask) {
+                const paused = this.state.pausedTask;
+                const taskDef = this.getTaskDefById(paused.taskId);
+                const duration = paused.duration || taskDef?.duration;
 
-                if (duration && this._lastTask.taskId) {
-                    this._manualStop = false;   // allow normal auto-restart behavior again
-                    this._isIdle = false;
+                if (duration && paused.taskId) {
+                    // UI hint immediately; authoritative state will come from host
                     if (stopBtn) stopBtn.innerText = 'STOP';
                     if (labelEl && taskDef) labelEl.innerText = taskDef.name;
                     if (progressEl) progressEl.style.width = '0%';
-                    this.network.startTask(this._lastTask.taskId, duration);
+
+                    this.network.startTask(paused.taskId, duration);
                 }
                 return;
             }
 
-            // Normal behavior: going from active to idle
-            this._manualStop = true; // suppress auto-restart after this stop
+            // Normal behavior: going from active to idle; host will persist pausedTask/manualStop
             if (this.state && this.state.activeTask) {
-                // Remember last task so Start can resume it
-                this._lastTask = { ...this.state.activeTask };
-                this._isIdle = true;
-
-                const taskDef = this.getTaskDefById(this._lastTask.taskId);
-                const taskName = taskDef ? taskDef.name : this._lastTask.taskId || 'Task';
+                const currentTask = this.state.activeTask;
+                const taskDef = this.getTaskDefById(currentTask.taskId);
+                const taskName = taskDef ? taskDef.name : currentTask.taskId || 'Task';
 
                 if (labelEl) {
                     labelEl.innerText = `Idle ~ ${taskName}`;
@@ -295,6 +293,11 @@ export class UIManager {
         const prevActiveTask = this.state ? this.state.activeTask : null;
         this.state = playerData;
 
+        // Mirror persisted stop/start info into local helpers
+        this._manualStop = !!playerData.manualStop;
+        this._isIdle = !!playerData.pausedTask;
+        this._lastTask = playerData.pausedTask || playerData.activeTask || this._lastTask;
+
         // Update User Info
         if (this.usernameDisplay && playerData.username) {
             this.usernameDisplay.innerText = playerData.username;
@@ -429,11 +432,11 @@ export class UIManager {
                 const currentTitle = document.getElementById('detail-name').innerText;
                 const skillOfCurrentView = findSkillByName(currentTitle);
                 if (skillOfCurrentView) showSkillDetails(this, skillOfCurrentView);
-            } else if (this._isIdle && this._lastTask) {
+            } else if (this._isIdle && this.state && this.state.pausedTask) {
                 // When idle for a specific task, ensure the header text/button reflect idle state
                 const labelEl = document.getElementById('task-label');
-                const taskDef = this.getTaskDefById(this._lastTask.taskId);
-                const taskName = taskDef ? taskDef.name : this._lastTask.taskId || 'Task';
+                const taskDef = this.getTaskDefById(this.state.pausedTask.taskId);
+                const taskName = taskDef ? taskDef.name : this.state.pausedTask.taskId || 'Task';
                 if (labelEl) {
                     labelEl.innerText = `Idle ~ ${taskName}`;
                 }

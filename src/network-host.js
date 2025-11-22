@@ -119,6 +119,9 @@ export function setupHostListeners(networkManager) {
                 if (player.activeEnergy && !player.activeEnergy.startTime && typeof player.activeEnergy.consumedMs !== 'number') {
                     player.activeEnergy = null;
                 }
+                // Normalize new persisted stop/start fields
+                if (typeof player.manualStop !== 'boolean') player.manualStop = false;
+                if (player.pausedTask && !player.pausedTask.taskId) player.pausedTask = null;
 
                 // Clear expired active energy if needed
                 await normalizeActiveEnergy(player);
@@ -159,6 +162,10 @@ export function setupHostListeners(networkManager) {
                         duration: data.duration
                     };
 
+                    // Clear any paused/idle state when starting a new task
+                    player.pausedTask = null;
+                    player.manualStop = false;
+
                     await savePlayer(player.twitchId, player);
                     appendHostLog(`Task "${data.taskId}" started for ${player.username}.`);
 
@@ -179,9 +186,20 @@ export function setupHostListeners(networkManager) {
         } else if (data.type === 'stop_task') {
             const player = await networkManager.validateToken(data.token);
             if (player) {
-                appendHostLog(`Task "${player.activeTask?.taskId || 'unknown'}" stopped for ${player.username}.`);
+                const stoppedTaskId = player.activeTask?.taskId || 'unknown';
+                appendHostLog(`Task "${stoppedTaskId}" stopped for ${player.username}.`);
+
+                // Persist paused/idle state so all peers see "Idle ~ TASKNAME"
+                if (player.activeTask) {
+                    player.pausedTask = {
+                        taskId: player.activeTask.taskId,
+                        duration: player.activeTask.duration
+                    };
+                }
                 // Stopping task puts user into idle; energy drain is handled by the background loop
                 player.activeTask = null;
+                player.manualStop = true;
+
                 await savePlayer(player.twitchId, player);
                 room.send({
                     type: 'state_update',
@@ -262,6 +280,9 @@ export function startTaskCompletionLoop(networkManager) {
                 if (player.activeEnergy && !player.activeEnergy.startTime && typeof player.activeEnergy.consumedMs !== 'number') {
                     player.activeEnergy = null;
                 }
+                // Normalize new persisted stop/start fields
+                if (typeof player.manualStop !== 'boolean') player.manualStop = false;
+                if (player.pausedTask && !player.pausedTask.taskId) player.pausedTask = null;
 
                 // Handle energy expiry and drain only while active
                 if (player.activeEnergy) {
@@ -367,6 +388,9 @@ export function startTaskCompletionLoop(networkManager) {
 
                     // Clear active task
                     player.activeTask = null;
+                    // Auto-completed tasks should not leave a paused/idle state
+                    player.pausedTask = null;
+                    player.manualStop = false;
                 }
 
                 // Persist any changes (task completion or energy expiry)
