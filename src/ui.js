@@ -12,6 +12,7 @@ export class UIManager {
         this.activeTaskInterval = null;
         this.isHost = isHost;
         this.currentEnergyStartTime = null; // legacy tracker, no longer used for timing
+        this._manualStop = false; // track manual stop clicks
 
         // Elements
         this.skillsList = document.getElementById('skills-list');
@@ -102,6 +103,7 @@ export class UIManager {
         }
 
         document.getElementById('stop-btn').addEventListener('click', () => {
+            this._manualStop = true; // suppress auto-restart after this stop
             this.network.stopTask();
         });
 
@@ -277,7 +279,10 @@ export class UIManager {
                 if (remainingPct > 100) remainingPct = 100;
                 this.energyBarFill.style.width = `${remainingPct}%`;
 
-                const isDraining = !!playerData.activeTask;
+                // Treat the bar as "draining" for the entire active energy period,
+                // not just while a specific task is running, to avoid flicker.
+                const isDraining = !!hasActiveEnergy;
+
                 // Toggle classes for visual state
                 this.energyBarBg.classList.toggle('draining', isDraining);
                 this.energyBarBg.classList.toggle('idle', !isDraining);
@@ -328,7 +333,7 @@ export class UIManager {
         }
 
         // Auto-restart last task while energy cell is active (only when we didn't manually stop)
-        if (hasActiveEnergy && prevActiveTask && !playerData.activeTask) {
+        if (hasActiveEnergy && prevActiveTask && !playerData.activeTask && !this._manualStop) {
             const taskId = prevActiveTask.taskId;
             let duration = prevActiveTask.duration;
 
@@ -346,6 +351,9 @@ export class UIManager {
             if (taskId && duration) {
                 this.network.startTask(taskId, duration);
             }
+        } else if (!playerData.activeTask) {
+            // If there is no active task, clear any manual-stop suppression
+            this._manualStop = false;
         }
 
         // Update inventory panel

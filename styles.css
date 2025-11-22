@@ -285,16 +285,18 @@ header {
 .energy-cell-bar-bg.draining {
     border-color: #4ade80;
     box-shadow: 0 0 6px rgba(74, 222, 128, 0.9);
+    animation: energy-glow 1s infinite alternate; /* glow the bar itself */
 }
 
 .energy-cell-bar-fill.draining {
-    animation: energy-glow 1s infinite alternate;
+    animation: none; /* no separate glow on the fill to reduce flicker */
 }
 
 /* Idle state: frozen blue outline */
 .energy-cell-bar-bg.idle {
     border-color: #3b82f6;
     box-shadow: 0 0 6px rgba(59, 130, 246, 0.9);
+    animation: none;
 }
 
 /* When idle, no glow animation on the fill */
