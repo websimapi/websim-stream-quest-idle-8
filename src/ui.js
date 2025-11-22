@@ -13,6 +13,8 @@ export class UIManager {
         this.isHost = isHost;
         this.currentEnergyStartTime = null; // legacy tracker, no longer used for timing
         this._manualStop = false; // track manual stop clicks
+        this._lastTask = null;    // track last active task for restart
+        this._isIdle = false;     // track if UI is in Idle-for-task mode
 
         // Elements
         this.skillsList = document.getElementById('skills-list');
@@ -26,12 +28,6 @@ export class UIManager {
         this.userAvatar = document.getElementById('user-avatar');
         this.linkAccountBtn = document.getElementById('link-account-btn');
         this.inventoryList = document.getElementById('inventory-list');
-
-        // New: header task elements for easier Idle/Active control
-        this.taskLabelEl = document.getElementById('task-label');
-        this.taskIconEl = document.getElementById('task-icon');
-        this.stopButtonEl = document.getElementById('stop-btn');
-        this.taskProgressFillEl = document.getElementById('task-progress');
 
         // Host-specific elements
         this.hostUserMenu = document.getElementById('host-user-menu');
@@ -89,6 +85,16 @@ export class UIManager {
         return stored + active;
     }
 
+    // Helper: get task definition by ID
+    getTaskDefById(taskId) {
+        if (!taskId) return null;
+        for (const skill of Object.values(SKILLS)) {
+            const t = skill.tasks.find((t) => t.id === taskId);
+            if (t) return t;
+        }
+        return null;
+    }
+
     initListeners() {
         const connectBtn = document.getElementById('connect-twitch-btn');
         if (connectBtn) {
@@ -109,9 +115,50 @@ export class UIManager {
         }
 
         document.getElementById('stop-btn').addEventListener('click', () => {
+            const stopBtn = document.getElementById('stop-btn');
+            const labelEl = document.getElementById('task-label');
+            const progressEl = document.getElementById('task-progress');
+
+            // If we are currently in idle mode for a previous task, clicking acts as "Start"
+            if (this._isIdle && this._lastTask) {
+                const taskDef = this.getTaskDefById(this._lastTask.taskId);
+                const duration = this._lastTask.duration || taskDef?.duration;
+
+                if (duration && this._lastTask.taskId) {
+                    this._manualStop = false;   // allow normal auto-restart behavior again
+                    this._isIdle = false;
+                    if (stopBtn) stopBtn.innerText = 'STOP';
+                    if (labelEl && taskDef) labelEl.innerText = taskDef.name;
+                    if (progressEl) progressEl.style.width = '0%';
+                    this.network.startTask(this._lastTask.taskId, duration);
+                }
+                return;
+            }
+
+            // Normal behavior: going from active to idle
             this._manualStop = true; // suppress auto-restart after this stop
-            // Immediately switch header to Idle state visually
-            this.setHeaderIdle();
+            if (this.state && this.state.activeTask) {
+                // Remember last task so Start can resume it
+                this._lastTask = { ...this.state.activeTask };
+                this._isIdle = true;
+
+                const taskDef = this.getTaskDefById(this._lastTask.taskId);
+                const taskName = taskDef ? taskDef.name : this._lastTask.taskId || 'Task';
+
+                if (labelEl) {
+                    labelEl.innerText = `Idle ~ ${taskName}`;
+                }
+                if (progressEl) {
+                    progressEl.style.width = '0%';
+                }
+                if (stopBtn) {
+                    stopBtn.innerText = 'Start';
+                }
+
+                // Stop the local progress animation immediately
+                this.stopProgressLoop();
+            }
+
             this.network.stopTask();
         });
 
@@ -336,13 +383,21 @@ export class UIManager {
         } else if (!playerData.activeTask && !hasActiveEnergy) {
             // If there is no active task and no active energy, clear any manual-stop suppression
             this._manualStop = false;
+            this._isIdle = false;
         }
 
         // Update Active Task UI
         const shouldShowTaskHeader = !!(playerData.activeTask || hasActiveEnergy || prevActiveTask);
         this.activeTaskContainer.style.display = shouldShowTaskHeader ? 'flex' : 'none';
 
+        const stopBtn = document.getElementById('stop-btn');
+
         if (playerData.activeTask) {
+            // Track the current task as the last task
+            this._lastTask = { ...playerData.activeTask };
+            this._isIdle = false;
+            if (stopBtn) stopBtn.innerText = 'STOP';
+
             // Only restart the progress loop if the task actually changed
             const taskChanged =
                 !prevActiveTask ||
@@ -352,20 +407,6 @@ export class UIManager {
 
             if (taskChanged) {
                 this.startProgressLoop(playerData.activeTask);
-            }
-
-            // When a task is active, ensure header shows the task info and Stop button
-            const activeTaskId = playerData.activeTask.taskId;
-            let activeTaskDef = null;
-            for (const s of Object.values(SKILLS)) {
-                const t = s.tasks.find((t) => t.id === activeTaskId);
-                if (t) {
-                    activeTaskDef = t;
-                    break;
-                }
-            }
-            if (activeTaskDef) {
-                this.setHeaderTask(activeTaskDef);
             }
 
             // Update Buttons in current view
@@ -380,7 +421,7 @@ export class UIManager {
             }
         } else {
             // No active task: if we also have no active energy, fully reset UI;
-            // otherwise keep the header visible in Idle mode with idle icon and no Stop button.
+            // otherwise keep the header visible and the bar frozen.
             if (!hasActiveEnergy) {
                 this.stopProgressLoop();
 
@@ -388,52 +429,20 @@ export class UIManager {
                 const currentTitle = document.getElementById('detail-name').innerText;
                 const skillOfCurrentView = findSkillByName(currentTitle);
                 if (skillOfCurrentView) showSkillDetails(this, skillOfCurrentView);
-            }
-
-            if (shouldShowTaskHeader) {
-                // We are in Idle mode (either with remaining energy cell or just stopped)
-                this.setHeaderIdle();
+            } else if (this._isIdle && this._lastTask) {
+                // When idle for a specific task, ensure the header text/button reflect idle state
+                const labelEl = document.getElementById('task-label');
+                const taskDef = this.getTaskDefById(this._lastTask.taskId);
+                const taskName = taskDef ? taskDef.name : this._lastTask.taskId || 'Task';
+                if (labelEl) {
+                    labelEl.innerText = `Idle ~ ${taskName}`;
+                }
+                if (stopBtn) stopBtn.innerText = 'Start';
             }
         }
 
         // Update inventory panel
         renderInventory(this.inventoryList, playerData);
-    }
-
-    // New helper: configure header for an active task
-    setHeaderTask(taskDef) {
-        if (this.taskLabelEl) {
-            this.taskLabelEl.innerText = taskDef.name;
-        }
-        if (this.taskIconEl) {
-            // Use the skill icon associated with this task
-            const skill = findSkillByTaskId(taskDef.id);
-            if (skill && skill.icon) {
-                this.taskIconEl.src = skill.icon;
-            }
-            this.taskIconEl.alt = taskDef.name;
-        }
-        if (this.stopButtonEl) {
-            this.stopButtonEl.style.display = 'inline-block';
-        }
-    }
-
-    // New helper: configure header for Idle state
-    setHeaderIdle() {
-        if (this.taskLabelEl) {
-            this.taskLabelEl.innerText = 'Idle';
-        }
-        if (this.taskIconEl) {
-            // Use energy icon as a simple idle indicator
-            this.taskIconEl.src = 'energy_icon.png';
-            this.taskIconEl.alt = 'Idle';
-        }
-        if (this.stopButtonEl) {
-            this.stopButtonEl.style.display = 'none';
-        }
-        if (this.taskProgressFillEl) {
-            this.taskProgressFillEl.style.width = '0%';
-        }
     }
 
     startProgressLoop(taskData) {
@@ -451,9 +460,7 @@ export class UIManager {
 
         if (!taskDef) return;
 
-        // Ensure header shows correct task name and icon and Stop button
-        this.setHeaderTask(taskDef);
-
+        document.getElementById('task-label').innerText = taskDef.name;
         const fill = document.getElementById('task-progress');
 
         this.activeTaskInterval = setInterval(() => {
